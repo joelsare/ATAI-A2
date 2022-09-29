@@ -1,48 +1,68 @@
-# FROM https://usmanr149.github.io/urmlblog/cnn/2020/05/01/Salincy-Maps.html
-import tensorflow as tf
-import tensorflow.keras as keras
-
+# FROM https://keisen.github.io/tf-keras-vis-docs/examples/attentions.html
 import numpy as np
-import matplotlib.pyplot as plt
-model = tf.keras.applications.VGG16(
-    include_top=True,
-    weights="imagenet",
-    input_tensor=None,
-    input_shape=None,
-    pooling=None,
-    classes=1000,
-    classifier_activation="softmax",
-)
+from matplotlib import pyplot as plt
 
-_img = keras.preprocessing.image.load_img('Chihuahua.jpg',target_size=(224,224))
-plt.imshow(_img)
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import load_img
+from tensorflow.keras.applications.vgg16 import preprocess_input
+from tf_keras_vis.utils.model_modifiers import ReplaceToLinear
+from tf_keras_vis.utils.scores import CategoricalScore
+from tensorflow.keras import backend as K
+from tf_keras_vis.saliency import Saliency
+
+
+from tensorflow.keras.applications.vgg16 import VGG16 as Model
+
+model = Model(weights='imagenet', include_top=True)
+# model.summary()
+
+replace2linear = ReplaceToLinear()
+
+score = CategoricalScore([151, 987, 985])
+
+# Image titles
+image_titles = ['Chihuahua', 'corn', 'daisy']
+
+# Load images and Convert them to a Numpy array
+img1 = load_img('images/Chihuahua.jpg', target_size=(224, 224))
+img2 = load_img('images/corn.jpg', target_size=(224, 224))
+img3 = load_img('images/daisy.jpg', target_size=(224, 224))
+images = np.asarray([np.array(img1), np.array(img2), np.array(img3)])
+
+# Preparing input data for VGG16
+X = preprocess_input(images)
+
+# Rendering
+f, ax = plt.subplots(nrows=1, ncols=3, figsize=(12, 4))
+for i, title in enumerate(image_titles):
+    ax[i].set_title(title, fontsize=16)
+    ax[i].imshow(images[i])
+    ax[i].axis('off')
 plt.savefig("img.jpg")
 
-#preprocess image to get it into the right format for the model
-img = keras.preprocessing.image.img_to_array(_img)
-img = img.reshape((1, *img.shape))
-y_pred = model.predict(img)
-print(y_pred.shape)
+saliency = Saliency(model,
+                    model_modifier=replace2linear,
+                    clone=True)
 
-images = tf.Variable(img, dtype=float)
+# Generate saliency map
 
-with tf.GradientTape() as tape:
-    pred = model(images, training=False)
-    class_idxs_sorted = np.argsort(pred.numpy().flatten())[::-1]
-    loss = pred[0][class_idxs_sorted[0]]
-    
-grads = tape.gradient(loss, images)
+# Vanilla
+# saliency_map = saliency(score, X)
 
-dgrad_abs = tf.math.abs(grads)
+# SmoothGrad
+saliency_map = saliency(score,
+                        X,
+                        smooth_samples=20, # The number of calculating gradients iterations.
+                        smooth_noise=0.20) # noise spread level.
 
-dgrad_max_ = np.max(dgrad_abs, axis=3)[0]
+## Since v0.6.0, calling `normalize()` is NOT necessary.
+# saliency_map = normalize(saliency_map)
 
-## normalize to range between 0 and 1
-arr_min, arr_max  = np.min(dgrad_max_), np.max(dgrad_max_)
-grad_eval = (dgrad_max_ - arr_min) / (arr_max - arr_min + 1e-18)
-
-fig, axes = plt.subplots(1,2,figsize=(14,5))
-axes[0].imshow(_img)
-i = axes[1].imshow(grad_eval,cmap="jet",alpha=0.8)
-fig.colorbar(i)
-plt.savefig("fig.jpg")
+# Render
+f, ax = plt.subplots(nrows=1, ncols=3, figsize=(12, 4))
+for i, title in enumerate(image_titles):
+    ax[i].set_title(title, fontsize=16)
+    ax[i].imshow(saliency_map[i], cmap='jet')
+    ax[i].axis('off')
+plt.tight_layout()
+plt.savefig("smoothgrad.jpg")
